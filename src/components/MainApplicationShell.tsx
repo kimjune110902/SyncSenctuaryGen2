@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { OutputPreviewMonitors } from "./OutputPreviewMonitors";
 import { StreamingRecordingPanel } from "./StreamingRecordingPanel";
 import { AIAutomationPanel } from "./AIAutomationPanel";
+import { TimersPanel } from "./TimersPanel";
+import { DeviceMonitor } from "./DeviceMonitor";
 import { AudioMixer } from "./AudioMixer";
 import { SlideGrid } from './SlideGrid';
 import { SettingsModal } from './SettingsModal';
@@ -93,11 +95,13 @@ export const MainApplicationShell: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', backgroundColor: '#1E1E1E', color: 'white', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', backgroundColor: '#1E1E1E', color: 'white', overflow: 'hidden', position: 'relative' }}>
+      <DeviceMonitor />
       <Toolbar />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <div style={{ width: `${leftPanelWidth}px`, flexShrink: 0, borderRight: '1px solid #333' }}>
           <h2 style={{ padding: '20px' }}>Library</h2>
+          <TimersPanel />
         </div>
 
         <ResizeHandle direction="left" onResize={setLeftPanelWidth} />
