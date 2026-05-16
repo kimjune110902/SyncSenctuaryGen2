@@ -5,29 +5,36 @@ use walkdir::WalkDir;
 use base64::{engine::general_purpose, Engine as _};
 use image::imageops::FilterType;
 use tauri::{AppHandle, Manager, State};
+use tokio::sync::mpsc;
 
 use crate::api::client::ApiError;
 use crate::AppState;
 
-pub fn is_path_safe(requested_path: &Path, app_data_dir: &Path, video_dir: Option<&PathBuf>) -> bool {
+pub struct MediaAssetData {
+    pub id: String,
+    pub file_path: String,
+    pub thumbnail_base64: Option<String>,
+}
+
+pub fn validate_and_canonicalize(requested_path: &Path, app_data_dir: &Path, video_dir: Option<&PathBuf>) -> Result<PathBuf, String> {
     let canonical_requested = match fs::canonicalize(requested_path) {
         Ok(path) => path,
-        Err(_) => return false,
+        Err(_) => return Err("Invalid path".to_string()),
     };
 
     let canonical_app_data = fs::canonicalize(app_data_dir).unwrap_or_default();
     if canonical_requested.starts_with(&canonical_app_data) {
-        return true;
+        return Ok(canonical_requested);
     }
 
     if let Some(vid_dir) = video_dir {
         let canonical_video = fs::canonicalize(vid_dir).unwrap_or_default();
         if !canonical_video.as_os_str().is_empty() && canonical_requested.starts_with(&canonical_video) {
-            return true;
+            return Ok(canonical_requested);
         }
     }
 
-    false
+    Err("Access to the requested path is forbidden.".to_string())
 }
 
 #[tauri::command]
@@ -38,23 +45,24 @@ pub async fn scan_media_directory(
 ) -> Result<usize, String> {
     let requested_path = PathBuf::from(&path);
 
-    // Security Audit: Prevent path traversal
+    // Security Audit: Prevent path traversal & TOCTOU
     let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let video_dir = app.path().video_dir().ok(); // Optional explicit user dir allowed
+    let video_dir = app.path().video_dir().ok();
 
-    if !is_path_safe(&requested_path, &app_data_dir, video_dir.as_ref()) {
-        return Err(serde_json::to_string(&ApiError::SecurityViolation {
-            message: "Access to the requested path is forbidden.".to_string()
-        }).unwrap());
-    }
+    let canonical_target = match validate_and_canonicalize(&requested_path, &app_data_dir, video_dir.as_ref()) {
+        Ok(safe_path) => safe_path,
+        Err(e) => return Err(serde_json::to_string(&ApiError::SecurityViolation { message: e }).unwrap()),
+    };
 
     let pool = state.db_pool.clone();
 
-    // Offload I/O to a background thread to prevent UI freezing
-    let scanned_count = tokio::task::spawn_blocking(move || {
-        let mut count = 0;
+    // MPSC Channel setup
+    let (tx, mut rx) = mpsc::channel::<MediaAssetData>(1000);
 
-        for entry in WalkDir::new(&requested_path).into_iter().filter_map(|e| e.ok()) {
+    // Offload I/O to a background thread to prevent UI freezing
+    let scanner_task = tokio::task::spawn_blocking(move || {
+        // Use the SECURE canonical path, preventing TOCTOU
+        for entry in WalkDir::new(&canonical_target).into_iter().filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.is_file() {
                 if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
@@ -76,34 +84,65 @@ pub async fn scan_media_directory(
                             }
                         }
 
-                        let pool_clone = pool.clone();
-                        let file_path_clone = file_path.clone();
-                        let thumb_clone = thumbnail_base64.clone();
+                        let data = MediaAssetData {
+                            id,
+                            file_path,
+                            thumbnail_base64,
+                        };
 
-                        let insert_result: Result<_, sqlx::Error> = tauri::async_runtime::block_on(async {
-                            // Using standard query builder instead of macro to avoid offline preparation requirement
-                            sqlx::query(
-                                "INSERT OR IGNORE INTO media_assets (id, file_path, thumbnail_base64) VALUES (?, ?, ?)"
-                            )
-                            .bind(id)
-                            .bind(file_path_clone)
-                            .bind(thumb_clone)
-                            .execute(&pool_clone)
-                            .await
-                        });
-
-                        if insert_result.is_ok() {
-                            count += 1;
+                        if tx.blocking_send(data).is_err() {
+                            break; // Receiver dropped, stop scanning
                         }
                     }
                 }
             }
         }
-        Ok::<usize, String>(count)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
+    });
 
-    Ok(scanned_count)
+    // Async Task: Batch Database Insertions
+    let mut total_inserted = 0;
+    let mut batch = Vec::with_capacity(500);
+
+    while let Some(asset) = rx.recv().await {
+        batch.push(asset);
+
+        if batch.len() >= 500 {
+            let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+            for item in &batch {
+                let _ = sqlx::query(
+                    "INSERT OR IGNORE INTO media_assets (id, file_path, thumbnail_base64) VALUES (?, ?, ?)"
+                )
+                .bind(&item.id)
+                .bind(&item.file_path)
+                .bind(&item.thumbnail_base64)
+                .execute(&mut *tx)
+                .await;
+            }
+            tx.commit().await.map_err(|e| e.to_string())?;
+            total_inserted += batch.len();
+            batch.clear();
+        }
+    }
+
+    // FINAL FLUSH BLOCK: Ensure any remaining assets < 500 are committed and not lost
+    if !batch.is_empty() {
+        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+        for item in &batch {
+            let _ = sqlx::query(
+                "INSERT OR IGNORE INTO media_assets (id, file_path, thumbnail_base64) VALUES (?, ?, ?)"
+            )
+            .bind(&item.id)
+            .bind(&item.file_path)
+            .bind(&item.thumbnail_base64)
+            .execute(&mut *tx)
+            .await;
+        }
+        tx.commit().await.map_err(|e| e.to_string())?;
+        total_inserted += batch.len();
+        batch.clear();
+    }
+
+    let _ = scanner_task.await; // Ensure scanning is complete
+
+    Ok(total_inserted)
 }

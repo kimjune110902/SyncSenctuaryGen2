@@ -1,6 +1,7 @@
 mod api;
 mod db;
 mod media;
+mod engine;
 
 use api::client::{ApiClient, AuthResponse, ApiError};
 use std::sync::{Arc, Mutex};
@@ -147,6 +148,7 @@ pub fn run() {
                     app_handle.emit("auth::unauthenticated", ()).unwrap();
                 }
             });
+            engine::start_compositor(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
