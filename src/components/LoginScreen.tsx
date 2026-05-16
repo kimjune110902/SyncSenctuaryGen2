@@ -44,7 +44,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ message }) => {
     setIsLoading(true);
 
     try {
-      await invoke('handle_login', {
+      await invoke('login', {
         identifier: trimmedIdentifier,
         password: trimmedPassword,
       });

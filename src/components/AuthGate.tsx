@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useAuthStore } from '../store/authStore';
+import { MainApplicationShell } from "./MainApplicationShell";
 import { LoginScreen } from './LoginScreen';
 
 export const AuthGate: React.FC = () => {
@@ -84,7 +85,7 @@ export const AuthGate: React.FC = () => {
   if (status === 'authenticated') {
     return (
       <div style={{ backgroundColor: '#1E1E1E', height: '100vh', color: 'white', padding: '20px' }}>
-        Main Application Shell (Authenticated)
+        <MainApplicationShell />
       </div>
     );
   }

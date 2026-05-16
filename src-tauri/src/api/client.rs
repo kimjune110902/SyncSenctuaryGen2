@@ -159,3 +159,42 @@ impl ApiClient {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockito::Server;
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn test_refresh_token_theft_detected() {
+        let mut server = Server::new_async().await;
+
+        let _m = server.mock("POST", "/api/v1/auth/refresh")
+            .with_status(401)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"error": "TOKEN_THEFT_DETECTED"}"#)
+            .create_async()
+            .await;
+
+        let base_url = server.url();
+        let access_token = Arc::new(Mutex::new(None));
+        let client = ApiClient::new(
+            base_url,
+            "1.0.0".to_string(),
+            "macos".to_string(),
+            access_token,
+        );
+
+        let result = client.refresh_tokens("stolen_raw_token").await;
+
+        match result {
+            Err(ApiError::TokenTheftDetected) => {
+                // Success: properly mapped!
+            }
+            other => {
+                panic!("Expected TokenTheftDetected error, got {:?}", other);
+            }
+        }
+    }
+}

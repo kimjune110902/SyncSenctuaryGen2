@@ -11,7 +11,7 @@ pub struct AppState {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-async fn handle_login(
+async fn login(
     identifier: String,
     password: String,
     state: State<'_, AppState>,
@@ -59,7 +59,7 @@ async fn handle_login(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-async fn handle_logout(
+async fn logout(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<(), String> {
@@ -134,7 +134,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![handle_login, handle_logout])
+        .invoke_handler(tauri::generate_handler![login, logout])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
