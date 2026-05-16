@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { OutputPreviewMonitors } from "./OutputPreviewMonitors";
+import { AudioMixer } from "./AudioMixer";
 import { SlideGrid } from './SlideGrid';
 import { SettingsModal } from './SettingsModal';
 import { Toolbar } from './Toolbar';
@@ -101,12 +103,14 @@ export const MainApplicationShell: React.FC = () => {
         <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
           <h2 style={{ padding: '20px' }}>Presentation View</h2>
           <SlideGrid />
+          <AudioMixer />
         </div>
 
         <ResizeHandle direction="right" onResize={setRightPanelWidth} />
 
         <div style={{ width: `${rightPanelWidth}px`, flexShrink: 0, borderLeft: '1px solid #333' }}>
-          <h2 style={{ padding: '20px' }}>Inspector / Output</h2>
+          <h2 style={{ padding: '20px' }}>Output Monitors</h2>
+          <OutputPreviewMonitors />
         </div>
       </div>
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
