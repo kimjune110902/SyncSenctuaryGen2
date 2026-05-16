@@ -7,12 +7,15 @@ use api::client::{ApiClient, AuthResponse, ApiError};
 use std::sync::{Arc, Mutex};
 use tauri::{State, AppHandle, Emitter, Manager};
 use sqlx::SqlitePool;
+use tokio::sync::RwLock;
+use engine::CompositorState;
 
 pub struct AppState {
     pub api_client: ApiClient,
     pub platform: String,
     pub access_token: Arc<Mutex<Option<String>>>,
     pub db_pool: SqlitePool,
+    pub compositor_state: Arc<RwLock<CompositorState>>,
 }
 
 #[tauri::command]
@@ -103,11 +106,14 @@ pub fn run() {
 
             let api_client = ApiClient::new(base_url, app_version, platform.clone(), access_token.clone());
 
+            let compositor_state = Arc::new(RwLock::new(CompositorState::default()));
+
             app.manage(AppState {
                 api_client,
                 platform,
                 access_token,
                 db_pool,
+                compositor_state: compositor_state.clone(),
             });
 
             tauri::async_runtime::spawn(async move {
@@ -148,13 +154,14 @@ pub fn run() {
                     app_handle.emit("auth::unauthenticated", ()).unwrap();
                 }
             });
-            engine::start_compositor(app.handle().clone());
+            engine::start_compositor(app.handle().clone(), compositor_state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             login,
             logout,
-            media::scan_media_directory
+            media::scan_media_directory,
+            engine::set_live_slide
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
