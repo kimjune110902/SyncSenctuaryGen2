@@ -124,7 +124,7 @@ pub async fn scan_media_directory(
         }
     }
 
-    // Insert remaining items
+    // FINAL FLUSH BLOCK: Ensure any remaining assets < 500 are committed and not lost
     if !batch.is_empty() {
         let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
         for item in &batch {
@@ -139,6 +139,7 @@ pub async fn scan_media_directory(
         }
         tx.commit().await.map_err(|e| e.to_string())?;
         total_inserted += batch.len();
+        batch.clear();
     }
 
     let _ = scanner_task.await; // Ensure scanning is complete
