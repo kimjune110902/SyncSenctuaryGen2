@@ -44,6 +44,7 @@ pub enum ApiError {
     RateLimited { retry_after_seconds: i64 },
     ServerError { status: u16, message: String },
     Timeout,
+    SecurityViolation { message: String },
 }
 
 pub struct ApiClient {

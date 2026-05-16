@@ -1,16 +1,20 @@
 mod api;
+mod db;
+mod media;
 
 use api::client::{ApiClient, AuthResponse, ApiError};
 use std::sync::{Arc, Mutex};
 use tauri::{State, AppHandle, Emitter, Manager};
+use sqlx::SqlitePool;
 
 pub struct AppState {
     pub api_client: ApiClient,
     pub platform: String,
     pub access_token: Arc<Mutex<Option<String>>>,
+    pub db_pool: SqlitePool,
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 async fn login(
     identifier: String,
     password: String,
@@ -58,7 +62,7 @@ async fn login(
     }
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 async fn logout(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -77,23 +81,34 @@ async fn logout(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let access_token = Arc::new(Mutex::new(None));
-    let base_url = "http://localhost:3000".to_string(); // In reality, load from config
-    let app_version = "1.0.0".to_string();
-    let platform = std::env::consts::OS.to_string();
-
-    let api_client = ApiClient::new(base_url, app_version, platform.clone(), access_token.clone());
-
     tauri::Builder::default()
-        .manage(AppState {
-            api_client,
-            platform,
-            access_token,
-        })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
+
+            // Sync database initialization
+            let app_data_dir = app_handle.path().app_data_dir().unwrap();
+            std::fs::create_dir_all(&app_data_dir).unwrap(); // Ensure path exists
+
+            let db_pool = tauri::async_runtime::block_on(async {
+                db::init_db(&app_data_dir).await.expect("Failed to initialize local database")
+            });
+
+            let access_token = Arc::new(Mutex::new(None));
+            let base_url = "http://localhost:3000".to_string(); // In reality, load from config
+            let app_version = "1.0.0".to_string();
+            let platform = std::env::consts::OS.to_string();
+
+            let api_client = ApiClient::new(base_url, app_version, platform.clone(), access_token.clone());
+
+            app.manage(AppState {
+                api_client,
+                platform,
+                access_token,
+                db_pool,
+            });
+
             tauri::async_runtime::spawn(async move {
                 let state: State<'_, AppState> = app_handle.state();
 
@@ -134,7 +149,11 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![login, logout])
+        .invoke_handler(tauri::generate_handler![
+            login,
+            logout,
+            media::scan_media_directory
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
