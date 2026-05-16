@@ -33,14 +33,6 @@ export const AuthGate: React.FC = () => {
         setUnauthenticated();
       });
 
-      // Simulation of startup checking (since we don't have the full rust boot sequence yet)
-      // In a real app this is triggered by Rust immediately.
-      setTimeout(() => {
-         if (useAuthStore.getState().status === 'loading') {
-            setUnauthenticated();
-         }
-      }, 500);
-
       return () => {
         unlistenSessionRestored();
         unlistenSessionExpired();

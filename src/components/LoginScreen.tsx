@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open as openBrowser } from '@tauri-apps/plugin-shell';
+import { openUrl as openBrowser } from '@tauri-apps/plugin-opener';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { mapApiErrorToMessage, ApiError } from '../api/invoke';
 
@@ -44,7 +44,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ message }) => {
     setIsLoading(true);
 
     try {
-      await invoke('login', {
+      await invoke('handle_login', {
         identifier: trimmedIdentifier,
         password: trimmedPassword,
       });

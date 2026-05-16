@@ -1,10 +1,8 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-
 mod api;
 
 use api::client::{ApiClient, AuthResponse, ApiError};
 use std::sync::{Arc, Mutex};
-use tauri::{State, AppHandle, Emitter};
+use tauri::{State, AppHandle, Emitter, Manager};
 
 pub struct AppState {
     pub api_client: ApiClient,
@@ -12,7 +10,7 @@ pub struct AppState {
     pub access_token: Arc<Mutex<Option<String>>>,
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn handle_login(
     identifier: String,
     password: String,
@@ -60,7 +58,7 @@ async fn handle_login(
     }
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn handle_logout(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -93,6 +91,49 @@ pub fn run() {
             access_token,
         })
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state: State<'_, AppState> = app_handle.state();
+
+                // STEP 2: Token retrieval from OS Keychain
+                if let Ok(raw_refresh_token) = api::keychain::read_refresh_token(None) {
+                    if !raw_refresh_token.is_empty() {
+                        // STEP 3: Silent Token Refresh
+                        match state.api_client.refresh_tokens(&raw_refresh_token).await {
+                            Ok(auth_response) => {
+                                *state.access_token.lock().unwrap() = Some(auth_response.access_token.clone());
+                                let _ = api::keychain::store_refresh_token(&auth_response.refresh_token, None);
+
+                                // Signal frontend session restored
+                                app_handle.emit("auth::session-restored", auth_response.user).unwrap();
+                            }
+                            Err(e) => {
+                                // Refresh failed (expired/revoked/theft)
+                                let _ = api::keychain::clear_refresh_token(None);
+                                *state.access_token.lock().unwrap() = None;
+
+                                // Parse exactly the required error to send to the frontend
+                                match e {
+                                    ApiError::TokenTheftDetected => {
+                                        app_handle.emit("auth::session-expired", serde_json::json!({ "reason": "Security alert: all sessions terminated. Please log in again." })).unwrap();
+                                    }
+                                    _ => {
+                                        app_handle.emit("auth::session-expired", serde_json::json!({ "reason": "Your session has expired. Please log in again." })).unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        app_handle.emit("auth::unauthenticated", ()).unwrap();
+                    }
+                } else {
+                    app_handle.emit("auth::unauthenticated", ()).unwrap();
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![handle_login, handle_logout])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
