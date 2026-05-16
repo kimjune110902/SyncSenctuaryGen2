@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { OutputPreviewMonitors } from "./OutputPreviewMonitors";
+import { StreamingRecordingPanel } from "./StreamingRecordingPanel";
+import { AIAutomationPanel } from "./AIAutomationPanel";
 import { AudioMixer } from "./AudioMixer";
 import { SlideGrid } from './SlideGrid';
 import { SettingsModal } from './SettingsModal';
@@ -111,6 +113,8 @@ export const MainApplicationShell: React.FC = () => {
         <div style={{ width: `${rightPanelWidth}px`, flexShrink: 0, borderLeft: '1px solid #333' }}>
           <h2 style={{ padding: '20px' }}>Output Monitors</h2>
           <OutputPreviewMonitors />
+          <StreamingRecordingPanel />
+          <AIAutomationPanel />
         </div>
       </div>
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
