@@ -1,12 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { invoke } from '@tauri-apps/api/core';
-
-interface Slide {
-  id: string;
-  name: string;
-  index: number;
-}
+import { Slide, usePresentationStore } from '../store/presentationStore';
 
 const mockSlides: Slide[] = [
   { id: '1', name: 'Verse 1', index: 0 },
@@ -15,28 +10,32 @@ const mockSlides: Slide[] = [
 ];
 
 export const SlideGrid: React.FC = () => {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
-  const [liveSlideId, setLiveSlideId] = useState<string | null>(null);
-  const [cuedSlideId, setCuedSlideId] = useState<string | null>(null);
+  const {
+      selectedSlideIds,
+      lastSelectedSlideId,
+      liveSlideId,
+      cuedSlideId,
+      setSelectedSlideIds,
+      setLastSelectedSlideId,
+      setLiveSlideId,
+      setCuedSlideId
+  } = usePresentationStore();
 
   const handleSelect = (slideId: string, event: React.MouseEvent) => {
     if (event.ctrlKey || event.metaKey) {
-      setSelectedIds(prev => {
-        const newSet = new Set(prev);
+        const newSet = new Set(selectedSlideIds);
         if (newSet.has(slideId)) newSet.delete(slideId);
         else newSet.add(slideId);
-        return newSet;
-      });
-    } else if (event.shiftKey && lastSelectedId !== null) {
+        setSelectedSlideIds(newSet);
+    } else if (event.shiftKey && lastSelectedSlideId !== null) {
       const allIds = mockSlides.map(s => s.id);
-      const fromIdx = allIds.indexOf(lastSelectedId);
+      const fromIdx = allIds.indexOf(lastSelectedSlideId);
       const toIdx = allIds.indexOf(slideId);
       const [start, end] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
-      setSelectedIds(new Set(allIds.slice(start, end + 1)));
+      setSelectedSlideIds(new Set(allIds.slice(start, end + 1)));
     } else {
-      setSelectedIds(new Set([slideId]));
-      setLastSelectedId(slideId);
+      setSelectedSlideIds(new Set([slideId]));
+      setLastSelectedSlideId(slideId);
     }
   };
 
@@ -57,7 +56,7 @@ export const SlideGrid: React.FC = () => {
   return (
     <div style={{ padding: '20px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
       {mockSlides.map(slide => {
-        const isSelected = selectedIds.has(slide.id);
+        const isSelected = selectedSlideIds.has(slide.id);
         const isLive = liveSlideId === slide.id;
         const isCued = cuedSlideId === slide.id;
 
